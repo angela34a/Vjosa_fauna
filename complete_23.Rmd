@@ -69,17 +69,17 @@ c27 <- c(
 # load data
 ```{r}
 
-env_vj <- read_excel("Environment_Vjosa_v2.xlsx") %>% 
+env_vj <- read_excel("C:/Users/Angela Cukusic/Documents/faks/joanna/Environment_Vjosa_v2.xlsx") %>% 
           as.data.frame() %>%  # to turn it into the form that we can work with
           column_to_rownames("Code") # assign rownames 
 
-spec_vj <- read_excel("Species_Vjosa_v1.xlsx") %>% 
+spec_vj <- read_excel("C:/Users/Angela Cukusic/Documents/faks/joanna/Species_Vjosa_v1.xlsx") %>% 
            as.data.frame() %>%
            column_to_rownames("Code") %>% 
            mutate_at(-c(1,2), as.numeric) # species dataset does not think of 1-2-3 as numbers but letters, make it numeric
   # "%>%" and mutate are all commands from tidyverse, see https://www.r-bloggers.com/2020/06/a-very-short-introduction-to-tidyverse/ 
 
-spt_vj <- read_excel("Spatial_vjosa_v3.xlsx") %>% 
+spt_vj <- read_excel("C:/Users/Angela Cukusic/Documents/faks/joanna/Spatial_vjosa_v3.xlsx") %>% 
           as.data.frame() %>% 
           column_to_rownames("Code") %>% 
           mutate_at(-c(1,2,3), as.numeric) # to make coordinates numeric
@@ -87,6 +87,9 @@ spt_vj <- read_excel("Spatial_vjosa_v3.xlsx") %>%
 
 
 # for later
+spec_vj_no_na <- spec_vj[complete.cases(spec_vj) , -c(1,2)] #remove nas
+
+# have all three datasets combined, and that without the NAs
 all_data <-  left_join(rownames_to_column(spec_vj_no_na), 
                        rownames_to_column(env_vj), 
                        by = "rowname") %>% 
@@ -136,7 +139,7 @@ kruskal.test(richness ~ all_data$Site) #not significantly different
 #if shapiro.test > 0.05 and bartlett.test > 0.05 use anova, if not use KW
 shapiro.test(richness) 
 bartlett.test(richness ~ River, data = all_data)
-#...check for ~ Site and for shasnnons index and so on ... 
+#...check for ~ Site and for shannons index and so on ... 
 
 
 #important: although Langarica and Kardhiq seem different it is important to remember that:
@@ -415,78 +418,58 @@ scores(simpleRDA)$sites
 scores(simpleRDA)$biplot
 ```
 
+
+## plot
 ```{r}
 
-  
+# use the automatic plot but then you cant color by group  
   ggvegan:::autoplot.rda(simpleRDA) 
-  
 
-  ggplot( as.data.frame(scores(simpleRDA)$sites), 
-          aes(x=RDA1,y=RDA2)) +
-  geom_point( color = "blue" , size = 4,
-              alpha = 0.3) +  
-
-  theme_bw() 
-  
-  
   
   # vectors
-ccavectors <- as.matrix(scores(simpleRDA, display = "bp", scaling = "sites")*3.32) %>% 
+ccavectors <- as.matrix(scores(simpleRDA, display = "bp", scaling = "sites") * 3) %>% 
   t() %>% as.data.frame() %>% 
-  rename("bix*" = "bix",
-         "Temp*" = "Temp",
-         "O2**" = "O2",
-         "fi***" = "fi",
-         "TCC***" = "TCC") %>%
+  rename( "Nitrat" = "Nitrat_mgL", 
+         "NO2" = "N_NO2_ugL" ,
+         "NH4" = "N_NH4_ugL",
+         "pH" = "ph" ,
+          "oxygen" = "O2_saturation",
+         "Temp" = "GW_Temp_C", 
+         "Altitude" = "Altitude_m" ) %>%
   t() %>% as.data.frame()
-
-#bix* , fi***, TCC***, Cond, O2**,  Temp*
 
 
 # site coordinates
 site_data <- scores(simpleRDA, display = "sites") %>% 
   as.data.frame() %>% 
-  cbind(., data_for_pca$type_III) %>% 
-  rename("type" = "data_for_pca$type_III")
+  rownames_to_column("ID") %>% 
+  left_join(.,   all_data %>%    rownames_to_column("ID") %>% select("River", "Month", "ID"),
+            by = "ID")
 
 # plotting
 plot_cca <- 
   site_data %>% 
-  ggplot( aes(x = CAP1, y = CAP2)) +
-  geom_point(aes(fill = type), shape = 21, 
-             size = 5, color= "black" )+  
-  geom_segment(data = ccavectors, aes(x = 0, y = 0, xend = CAP1, yend = CAP2), 
-               size = 1.2, arrow = arrow(length = unit(0.5, "cm"))) +
+  ggplot( aes(x = RDA1, y = RDA2)) +
+  geom_point(aes(color = River, shape = Month), 
+             size = 5, alpha= 0.5)+  
+  geom_segment(data = ccavectors, aes(x = 0, y = 0, xend = RDA1, yend = RDA2), 
+               size = 1.1, arrow = arrow(length = unit(0.5, "cm"))) +
    geom_vline(xintercept = c(0), color = "grey70", linetype = 2) +
    geom_hline(yintercept = c(0), color = "grey70", linetype = 2) +
-  geom_text(data = ccavectors, aes(x = CAP1*1.2, y = CAP2*1.1, 
+  geom_text(data = ccavectors, aes(x = RDA1*1.19, y = RDA2*1.19, 
                                    label = rownames(ccavectors)),
-                                   size=6 ) +
-  theme_linedraw() +
-  scale_fill_brewer(palette = "Accent") +
-     theme(legend.background = element_blank(),
+                                   size=6, color= "grey7" ) +
+  theme_bw() +
+     theme(panel.grid = element_blank(),
+       legend.background = element_blank(),
            legend.box.background = element_rect(colour = "gray")) 
 
 plot_cca
   
   
-  +
-# add stress value
-  annotate(geom="text",x=0.6, y=2, 
-           label="stress =", color="black") +   
-  annotate(geom="text", x=1.1, y=2, 
-           label=round(nmds$stress,4), color="black") +
-# ellipse  
-  stat_ellipse(aes(linetype = Month), linewidth = 0.4) + 
-# visual parameters 
-  theme(legend.background = element_blank(),
-        legend.box.background = element_rect(colour = "gray")) +
-  labs(fill = "Temperature \ncategory") +
-  geom_vline(xintercept = c(0), color = "grey70", linetype = 2) +
-  geom_hline(yintercept = c(0), color = "grey70", linetype = 2) 
 
 ```
-
+Dishinica has elevated levels of Nitrat.
 
 
 # composition
@@ -511,7 +494,7 @@ all_data[,1:30]    %>%
   ungroup() %>%
  
 # plot
-  ggplot(aes(x = River, y = rel_abund, fill = species)) + 
+  ggplot(aes(x = River, y = abundance, fill = species)) + 
   geom_bar(stat = "identity") +
   facet_wrap(~Month, scales= "free") +
   theme_bw() +
@@ -536,15 +519,92 @@ all_data[,1:30]    %>%
 # first plot the river alone
 ```
 
+
+For species most abundant:
 ```{r}
-
-
 all_data %>% 
   ggplot(aes(x= Latitude_DD, y = Longitude_DD)  ) +
   geom_point(aes(size = Cyclopoida, shape = Month,
                  color = River), alpha = 0.2) +
   geom_line(aes(color = River), alpha = 0.4) +
   theme(legend.position = "none") +
-  theme_bw()
+  labs(x= "Latitude", y= "Longitude") +
+  theme_bw() -> cyclop
+
+all_data %>% 
+  ggplot(aes(x= Latitude_DD, y = Longitude_DD)  ) +
+  geom_point(aes(size = Chironomidae, shape = Month,
+                 color = River), alpha = 0.2) +
+  geom_line(aes(color = River), alpha = 0.4) +
+  theme(legend.position = "none") +
+  labs(x= "Latitude", y= "Longitude") +
+  theme_bw() -> chiro
+
+
+all_data %>% 
+  ggplot(aes(x= Latitude_DD, y = Longitude_DD)  ) +
+  geom_point(aes(size = Harpacticoida, shape = Month,
+                 color = River), alpha = 0.2) +
+  geom_line(aes(color = River), alpha = 0.4) +
+  theme(legend.position = "none") +
+  labs(x= "Latitude", y= "Longitude") +
+  theme_bw() -> harp
+
+cyclop 
+chiro 
+harp
 ```
 
+For more species:
+```{r}
+all_data %>% 
+  select(1:26, "Latitude_DD", "Longitude_DD", "River", "Month") %>% 
+# remove the Unknown and some that appear only at one site
+  select(!c("Unkown", "Coleoptera")) %>% 
+  
+  pivot_longer(cols = - c("Month", "River", "Latitude_DD", "Longitude_DD"),
+               values_to = "values", names_to = "species") %>% 
+  
+# make it relative to the total abundance of this species  
+  group_by(species) %>% 
+  mutate(rel_abund = values/sum(values)) %>% 
+  ungroup() %>% 
+  
+  ggplot(aes(x= Latitude_DD, y = Longitude_DD)  ) +
+  geom_point(aes(size = rel_abund, shape = Month,
+                 color = River), alpha = 0.2) +
+  geom_line(aes(color = River), alpha = 0.4) +
+   theme_bw() + 
+  theme(panel.grid.major = element_blank(),
+        panel.grid.minor = element_blank(),
+        legend.position = "right") +
+  facet_wrap(~species) +
+  labs(x= "Latitude", y= "Longitude") 
+ 
+```
+Or dont make it relative, use total numbers:
+
+```{r}
+all_data %>% 
+  select(1:26, "Latitude_DD", "Longitude_DD", "River", "Month") %>% 
+# remove the Unknown and some that appear only at one site
+  select(!c("Unkown", "Coleoptera")) %>% 
+  
+  pivot_longer(cols = - c("Month", "River", "Latitude_DD", "Longitude_DD"),
+               values_to = "values", names_to = "species") %>% 
+
+  
+  ggplot(aes(x= Latitude_DD, y = Longitude_DD)  ) +
+  geom_point(aes(size = values, shape = Month,
+                 color = River), alpha = 0.2) +
+  geom_line(aes(color = River), alpha = 0.4) +
+   theme_bw() + 
+  theme(panel.grid.major = element_blank(),
+        panel.grid.minor = element_blank(),
+        legend.position = "right") +
+  facet_wrap(~species) +
+  labs(x= "Latitude", y= "Longitude") 
+```
+
+The first species is most abundant in May in the Kardhiq rievr, and in September in Kardhiq and Vjosa.
+The second species is most abundant in Drinos and Bence river. The third species is abundant in Disnica.
