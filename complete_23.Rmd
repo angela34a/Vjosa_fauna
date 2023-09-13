@@ -1,0 +1,550 @@
+---
+title: "The riverine fauna" 
+author:  "Angela Cukusic"
+
+output:
+  html_document:
+    toc: true               # Table of contents
+    toc_float: true         # Keep the table of contents floating on the page
+    code_download: true     # Enable code download button
+    code_copy: true         # Enable code copy button
+    number_sections: true   # Numbering the sections
+    theme: cerulean           # Choose a Bootstrap theme (check available themes)
+    highlight: tango        # Syntax highlighting style 
+---
+
+```{r setup, include=FALSE}
+# For width of code chunks and scroll bar 
+options(width=250)
+
+knitr::opts_chunk$set(eval = TRUE, 
+                      echo = TRUE, 
+                      cache = TRUE,
+                      include = TRUE,
+                      warning = FALSE,
+                      collapse = FALSE,
+                      message = FALSE,
+                      engine = "R", 
+                      # Chunks will always have R code, unless noted
+                      error = TRUE)
+
+```
+
+
+# load packages
+```{r}
+#if some are not already installed you will gwt an error when loading them with library()
+#in that case use nstall.packages("name.of.package")
+library(readxl) # to read in datasets that are in xlxs form
+library(tidyverse) # to edit datasets easily
+library(dplyr)  # to edit datasets easily
+library(vegan)  # to use ecological analyses
+library(patchwork) # to show more plots in the same picture
+
+```
+
+
+```{r}
+# palette
+c27 <- c(
+  "dodgerblue2", "#E31A1C", # red
+  "green4",
+  "#6A3D9A", # purple
+  "violet", # orange
+  "black", "gold1",
+  "darkturquoise","#FB9A99", # lt pink
+  "palegreen2",
+  "#CAB2D6", 
+  "deeppink1",# lt purple
+  "#FDBF6F", # lt orange
+  "gray70", "khaki2",
+  "maroon","yellow4", "orchid1",  "blue1", 
+ "skyblue2", "green1",  "yellow3",
+  "darkorange4","steelblue4",  "brown",
+  "blue4", "#FF7F00"
+)
+```
+
+
+# load data
+```{r}
+
+env_vj <- read_excel("Environment_Vjosa_v2.xlsx") %>% 
+          as.data.frame() %>%  # to turn it into the form that we can work with
+          column_to_rownames("Code") # assign rownames 
+
+spec_vj <- read_excel("Species_Vjosa_v1.xlsx") %>% 
+           as.data.frame() %>%
+           column_to_rownames("Code") %>% 
+           mutate_at(-c(1,2), as.numeric) # species dataset does not think of 1-2-3 as numbers but letters, make it numeric
+  # "%>%" and mutate are all commands from tidyverse, see https://www.r-bloggers.com/2020/06/a-very-short-introduction-to-tidyverse/ 
+
+spt_vj <- read_excel("Spatial_vjosa_v3.xlsx") %>% 
+          as.data.frame() %>% 
+          column_to_rownames("Code") %>% 
+          mutate_at(-c(1,2,3), as.numeric) # to make coordinates numeric
+
+
+
+# for later
+all_data <-  left_join(rownames_to_column(spec_vj_no_na), 
+                       rownames_to_column(env_vj), 
+                       by = "rowname") %>% 
+             left_join(. , rownames_to_column(spt_vj), 
+                       by = "rowname" ) %>% 
+             column_to_rownames("rowname") %>% 
+  # selecting with "!" means selecting things that are NOT named 
+             select(! c("SampleID.y", "River.y", "Month.y")) %>% 
+             rename("SampleID" ="SampleID.x", "River" = "River.x", "Month" = "Month.x")
+```
+
+
+# alpha diversity
+
+## calculate 
+```{r}
+
+# add the site identification
+all_data <- all_data %>% mutate(Site = case_when(str_detect(SampleID, "GWA") ~ "A",
+                                                  str_detect(SampleID,"GWB") ~ "B"))
+#with this we create another column where it says whether something is A or B site
+# with mutate you add a new column
+
+#pg 16
+#calculating richness and shannons index
+richness <- specnumber(spec_vj_no_na)
+shannondiv <- diversity(spec_vj_no_na)
+effective_number_species <- exp(shannondiv)
+
+```
+
+
+## test
+```{r}
+
+# 1. richness
+
+#test with anova
+summary(aov(richness ~ all_data$River)) #not significantly different
+summary(aov(richness ~ all_data$Site)) #not significantly different
+
+#KW test
+kruskal.test(richness ~ all_data$River) #not significantly different
+kruskal.test(richness ~ all_data$Site) #not significantly different
+
+# which test to use: anova or KW
+#if shapiro.test > 0.05 and bartlett.test > 0.05 use anova, if not use KW
+shapiro.test(richness) 
+bartlett.test(richness ~ River, data = all_data)
+#...check for ~ Site and for shasnnons index and so on ... 
+
+
+#important: although Langarica and Kardhiq seem different it is important to remember that:
+table(all_data$River)
+#.. Langarica has only 2 data points (after we took out NAs) which could impact the results
+
+
+
+
+# 2. shannons index
+
+#seeing if it depends on the environmental variables
+boxplot(shannondiv ~ all_data$River)
+boxplot(shannondiv ~ all_data$Site)
+
+#test with anova
+summary(aov(shannondiv ~ all_data$River)) 
+summary(aov(shannondiv ~ all_data$Site)) 
+
+#KW test 
+kruskal.test(shannondiv ~ all_data$River) 
+kruskal.test(shannondiv ~ all_data$Site) 
+
+#if shapiro.test > 0.05 and bartlett.test > 0.05 use anova, if not use KW
+shapiro.test(shannondiv) # is not normal - maybe we could do better to test with KW
+bartlett.test(shannondiv ~ River, data = all_data)
+ 
+
+```
+
+## plot
+
+```{r}
+
+by_river <- cbind(as.data.frame(richness), as.factor(all_data$River)) %>% 
+  as.data.frame() %>%
+  rename("div"= "richness","river"="as.factor(all_data$River)") %>%
+  ggplot( aes(x = river, y = div, fill = river, color=river)) +
+  geom_jitter(width = 0.2, size = 3, 
+              shape=21, alpha = 0.3,
+              aes(fill = river) , 
+              color = "black") +
+  geom_boxplot( alpha=0.5, outlier.shape = NA, 
+                aes(fill = river)) + 
+  theme_minimal()+
+  theme(legend.position = "none",
+        axis.title=element_text(size=8,face="bold"),
+        #axis.text.x = element_text(angle = 90)
+        axis.text.y = element_text(size=8,face="bold")) +
+  labs(x = "River",
+       y = "Richness") 
+
+by_site <- cbind(as.data.frame(richness), as.factor(all_data$Site)) %>% 
+  as.data.frame() %>%
+  rename("div"= "richness","site"="as.factor(all_data$Site)") %>%
+  ggplot( aes(x = site, y = div, fill = site, color=site)) +
+  geom_jitter(width = 0.2, size = 3, 
+              shape=21, alpha = 0.3,
+              aes(fill = site) , 
+              color = "black") +
+  geom_boxplot( alpha=0.5, outlier.shape = NA, 
+                aes(fill = site)) + 
+  theme_minimal()+
+  theme(legend.position = "none",
+        axis.title=element_text(size=8,face="bold"),
+        #axis.text.x = element_text(angle = 90)
+        axis.text.y = element_text(size=8,face="bold")) +
+  labs(x = "Site",
+       y = "Richness")  + 
+  scale_x_discrete(limits = c("A", "B") ) #remove NA
+
+
+by_river_s <- cbind(as.data.frame(shannondiv), as.factor(all_data$River)) %>% 
+  as.data.frame() %>%
+  rename("div"= "shannondiv","river"="as.factor(all_data$River)") %>%
+  ggplot( aes(x = river, y = div, fill = river, color=river)) +
+  geom_jitter(width = 0.2, size = 3, 
+              shape=21, alpha = 0.3,
+              aes(fill = river) , 
+              color = "black") +
+  geom_boxplot( alpha=0.5, outlier.shape = NA, 
+                aes(fill = river)) + 
+  theme_minimal()+
+  theme(legend.position = "none",
+        axis.title=element_text(size=8,face="bold"),
+        #axis.text.x = element_text(angle = 90)
+        axis.text.y = element_text(size=8,face="bold")) +
+  labs(x = "River",
+       y = "Shannon index") 
+
+by_site_s <- cbind(as.data.frame(shannondiv), as.factor(all_data$Site)) %>% 
+  as.data.frame() %>%
+  rename("div"= "shannondiv","site"="as.factor(all_data$Site)") %>%
+  ggplot( aes(x = site, y = div, fill = site, color=site)) +
+  
+  geom_jitter(width = 0.2, size = 3, 
+              shape=21, alpha = 0.3,
+              aes(fill = site) , 
+              color = "black") +
+  geom_boxplot( alpha=0.5, outlier.shape = NA, 
+                aes(fill = site)) + 
+  theme_minimal()+
+  theme(legend.position = "none",
+        axis.title=element_text(size=8,face="bold"),
+        #axis.text.x = element_text(angle = 90)
+        axis.text.y = element_text(size=8,face="bold")) +
+  labs(x = "Site",
+       y = "Shannon index") + 
+  scale_x_discrete(limits = c("A", "B") ) #remove NA
+
+
+by_river +  by_site + by_river_s  + by_site_s + plot_layout(widths = c(2, 1))
+
+```
+
+
+# beta diversity (community data)
+
+## calculate
+```{r}
+# do an ordination with a hellinger transformation 
+ sp.dist <-  vegdist(decostand( spec_vj_no_na,
+                               method = "hellinger") )
+
+
+# or without the transformation
+sp.dist <-  vegdist(
+  spec_vj_no_na
+  )
+
+nmds <- metaMDS(sp.dist, k = 2, autotransform = FALSE)
+```
+
+## plot
+```{r}
+nmds_plot <- as.data.frame(nmds$points) %>% 
+  rownames_to_column("Locality") %>%
+  left_join(., spt_vj %>%   rownames_to_column("Locality"), 
+            by = "Locality") %>% 
+  mutate(River = as.factor(River)) %>% 
+  ggplot(aes(x=MDS1,y=MDS2) ) +
+  geom_point(aes( color= River, shape = Month),
+             size = 4, alpha = 0.6, stroke = 0.5) +  
+
+  theme_bw() +
+# add stress value
+  annotate(geom="text",x=0.6, y=2, 
+           label="stress =", color="black") +   
+  annotate(geom="text", x=1.1, y=2, 
+           label=round(nmds$stress,4), color="black") +
+# ellipse  
+  stat_ellipse(aes(linetype = Month), linewidth = 0.4) + 
+# visual parameters 
+  theme(legend.background = element_blank(),
+        legend.box.background = element_rect(colour = "gray")) +
+  labs(fill = "Temperature \ncategory") +
+  geom_vline(xintercept = c(0), color = "grey70", linetype = 2) +
+  geom_hline(yintercept = c(0), color = "grey70", linetype = 2) 
+
+nmds_plot
+
+```
+
+
+
+## test
+```{r}
+# a) for river
+
+# 1. test dispersion as an assumption 
+# (variance test for multivariate statistics)
+spec_vj_no_na %>% rownames_to_column("Locality") %>% 
+    left_join(., spt_vj %>%   rownames_to_column("Locality"), 
+            by = "Locality") %>% 
+  dplyr::select("River", "Month") -> no_na_categorical
+disp <- betadisper( sp.dist, no_na_categorical$River )  
+
+
+
+# p>0.05 is what we need - homogenous variances
+anova(disp) # no differences in dispersion 
+
+
+# 2. now test actual ordination
+# test differences in group centroid with adonis 
+# (anova version for multivariate statistics)
+permanova <- adonis2(sp.dist ~ no_na_categorical$River, 
+                     na.action = na.omit,
+                     method = "bray" , permutations = 999)
+permanova # not sign.
+
+
+# b) for month
+
+# 1. test dispersion as an assumption 
+# (variance test for multivariate statistics)
+disp <- betadisper( sp.dist, no_na_categorical$Month )  
+
+
+# p>0.05 is what we need - homogenous variances
+anova(disp) # no differences in dispersion 
+
+
+# 2. now test actual ordination
+# test differences in group centroid with adonis 
+# (anova version for multivariate statistics)
+permanova <- adonis2(sp.dist ~ no_na_categorical$Month, 
+                     na.action = na.omit,
+                     method = "bray" , permutations = 999)
+permanova # sign. differences between the two sampling campaigns
+
+```
+
+
+# environmental data
+
+### rda
+```{r}
+
+# make clean environmental data
+env_vj %>% dplyr::select(!c("SampleID", "Date", "Month", "River")) %>% 
+  rownames_to_column("ID") -> env1
+
+  
+spt_vj  %>% rownames_to_column("ID") %>% 
+  dplyr::select(!"SampleID") -> env2
+
+full_join(env1, env2, by = "ID") -> env
+# choose only  the ones that we used for species matrix
+env[which(env$ID %in% rownames(spec_vj_no_na) ),] %>% 
+  select(!c("River", "Month", "ID", "Air-Temp_C") ) %>% 
+  mutate_if(is.character, as.numeric ) %>% 
+  scale() %>% 
+  as.data.frame() -> env.2        
+
+# 1. first model
+simpleRDA <- rda(decostand( spec_vj_no_na,
+                               method = "hellinger")  ~  ., data = env.2 ,
+                 distance = "bray",
+                 na.action = na.omit)
+# take only that are vif<10
+env_vars_low_vif <- vif.cca(simpleRDA) %>% 
+                    as.data.frame() %>% 
+                    dplyr::rename("env" = ".") %>% 
+                    dplyr::filter(env < 10) 
+
+# make new environmental data with only low vif variables
+env.2[,which(colnames(env.2) %in%  rownames(env_vars_low_vif) )] -> env.dat
+
+
+# 2. model without them
+simpleRDA <- rda(decostand( spec_vj_no_na,
+                               method = "hellinger")  ~  ., 
+                      data=  env.dat ,
+                 distance = "bray",
+                 na.action = na.omit) 
+
+
+# test all variables and axes
+# canonical axes
+anova.model <- anova.cca(simpleRDA, by='axis', step=1000)  
+# no axes sign
+
+# the whole model
+anova.model2 <- anova.cca(simpleRDA, step=1000) #is sign
+RsquareAdj(simpleRDA)$adj.r.squared # and explains <1%
+
+# env parameters
+anova.model3 <- anova(simpleRDA, step=1000, by = "term") 
+# none sign
+
+
+plot(simpleRDA)
+scores(simpleRDA)$species
+scores(simpleRDA)$sites
+scores(simpleRDA)$biplot
+```
+
+```{r}
+
+  
+  ggvegan:::autoplot.rda(simpleRDA) 
+  
+
+  ggplot( as.data.frame(scores(simpleRDA)$sites), 
+          aes(x=RDA1,y=RDA2)) +
+  geom_point( color = "blue" , size = 4,
+              alpha = 0.3) +  
+
+  theme_bw() 
+  
+  
+  
+  # vectors
+ccavectors <- as.matrix(scores(simpleRDA, display = "bp", scaling = "sites")*3.32) %>% 
+  t() %>% as.data.frame() %>% 
+  rename("bix*" = "bix",
+         "Temp*" = "Temp",
+         "O2**" = "O2",
+         "fi***" = "fi",
+         "TCC***" = "TCC") %>%
+  t() %>% as.data.frame()
+
+#bix* , fi***, TCC***, Cond, O2**,  Temp*
+
+
+# site coordinates
+site_data <- scores(simpleRDA, display = "sites") %>% 
+  as.data.frame() %>% 
+  cbind(., data_for_pca$type_III) %>% 
+  rename("type" = "data_for_pca$type_III")
+
+# plotting
+plot_cca <- 
+  site_data %>% 
+  ggplot( aes(x = CAP1, y = CAP2)) +
+  geom_point(aes(fill = type), shape = 21, 
+             size = 5, color= "black" )+  
+  geom_segment(data = ccavectors, aes(x = 0, y = 0, xend = CAP1, yend = CAP2), 
+               size = 1.2, arrow = arrow(length = unit(0.5, "cm"))) +
+   geom_vline(xintercept = c(0), color = "grey70", linetype = 2) +
+   geom_hline(yintercept = c(0), color = "grey70", linetype = 2) +
+  geom_text(data = ccavectors, aes(x = CAP1*1.2, y = CAP2*1.1, 
+                                   label = rownames(ccavectors)),
+                                   size=6 ) +
+  theme_linedraw() +
+  scale_fill_brewer(palette = "Accent") +
+     theme(legend.background = element_blank(),
+           legend.box.background = element_rect(colour = "gray")) 
+
+plot_cca
+  
+  
+  +
+# add stress value
+  annotate(geom="text",x=0.6, y=2, 
+           label="stress =", color="black") +   
+  annotate(geom="text", x=1.1, y=2, 
+           label=round(nmds$stress,4), color="black") +
+# ellipse  
+  stat_ellipse(aes(linetype = Month), linewidth = 0.4) + 
+# visual parameters 
+  theme(legend.background = element_blank(),
+        legend.box.background = element_rect(colour = "gray")) +
+  labs(fill = "Temperature \ncategory") +
+  geom_vline(xintercept = c(0), color = "grey70", linetype = 2) +
+  geom_hline(yintercept = c(0), color = "grey70", linetype = 2) 
+
+```
+
+
+
+# composition
+```{r}
+# detach(package:plyr, unload = TRUE)
+# tried fixing conflicts from select and filter by detaching
+# but it is a conflict with some other package as well
+# simply continue adding dplyr:: before the command 
+
+all_data[,1:30]    %>%
+  
+  select(!c("SampleID", "Date")) %>% 
+  mutate(River = all_data$River) %>% 
+  pivot_longer(cols=-c("Month", "River"), 
+               values_to = "abundance", 
+               names_to = "species") %>%
+    
+  
+# to find relative abundance within each river  
+  dplyr::group_by(Month,River) %>%
+  mutate (rel_abund = abundance / sum(abundance)) %>%
+  ungroup() %>%
+ 
+# plot
+  ggplot(aes(x = River, y = rel_abund, fill = species)) + 
+  geom_bar(stat = "identity") +
+  facet_wrap(~Month, scales= "free") +
+  theme_bw() +
+  scale_fill_manual(values=c27) +
+  theme(panel.grid = element_blank(), legend.position="right",
+        legend.text = element_text(size = 6),      # Adjust the text size
+        legend.title = element_text(size = 6),
+        legend.key.size = unit(0.4, "cm"),
+        axis.title=element_text(size=8),
+        axis.text.y = element_text(size=8),
+        axis.text.x = element_text(angle = 90)) + 
+  labs(y = "Relative abundance", 
+       fill = "Class") +
+  guides(fill=guide_legend(ncol = 2))
+```
+
+
+
+# along the river
+
+```{r}
+# first plot the river alone
+```
+
+```{r}
+
+
+all_data %>% 
+  ggplot(aes(x= Latitude_DD, y = Longitude_DD)  ) +
+  geom_point(aes(size = Cyclopoida, shape = Month,
+                 color = River), alpha = 0.2) +
+  geom_line(aes(color = River), alpha = 0.4) +
+  theme(legend.position = "none") +
+  theme_bw()
+```
+
